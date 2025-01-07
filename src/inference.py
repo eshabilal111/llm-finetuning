@@ -7,13 +7,17 @@ from fastapi.responses import StreamingResponse
 
 from .common import app, vllm_image, Colors, MINUTES, VOLUME_CONFIG
 
+#image = (
+#    modal.Image.debian_slim(python_version="3.10")
+#    .pip_install("transformers")
+#)
+
 INFERENCE_GPU_CONFIG = os.environ.get("INFERENCE_GPU_CONFIG", "a10g:2")
 if len(INFERENCE_GPU_CONFIG.split(":")) <= 1:
     N_INFERENCE_GPUS = int(os.environ.get("N_INFERENCE_GPUS", 2))
     INFERENCE_GPU_CONFIG = f"{INFERENCE_GPU_CONFIG}:{N_INFERENCE_GPUS}"
 else:
     N_INFERENCE_GPUS = int(INFERENCE_GPU_CONFIG.split(":")[-1])
-
 
 with vllm_image.imports():
     from vllm.engine.arg_utils import AsyncEngineArgs
@@ -22,11 +26,10 @@ with vllm_image.imports():
     from vllm.utils import random_uuid
     import yaml
 
-
 def get_model_path_from_run(path: Path) -> Path:
+    import yaml
     with (path / "config.yml").open() as f:
         return path / yaml.safe_load(f.read())["output_dir"] / "merged"
-
 
 @app.cls(
     gpu=INFERENCE_GPU_CONFIG,
@@ -131,10 +134,28 @@ class Inference:
 
         # access private attribute to ensure graceful termination
         self.engine._background_loop_unshielded.cancel()
+"""
+@app.function(image = image)
+def actual_main(run_name):
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    import yaml
 
+    run_dir = "/example-runs-vol"
+    path = Path(run_dir) / run_name
 
+    #model_path = get_model_path_from_run(path)
+    with (path / "config.yml").open() as f:
+        model_path = path / yaml.safe_load(f.read())["output_dir"] / "merged"
+
+    model.save_pretrained(model_path)
+
+    tokenizer = AutoTokenizer.from_local(model_path)
+    model = AutoModelForCausalLM.from_pretrained(model_path)
+"""
+@modal.web_endpoint(method="POST")
 @app.local_entrypoint()
 def inference_main(run_name: str = "", prompt: str = ""):
+    
     if not prompt:
         prompt = input(
             "Enter a prompt (including the prompt template, e.g. [INST] ... [/INST]):\n"
@@ -147,3 +168,7 @@ def inference_main(run_name: str = "", prompt: str = ""):
         response += chunk  # not streaming to avoid mixing with server logs
     print(Colors.BLUE, f"👤: {prompt}", Colors.END, sep="")
     print(Colors.GRAY, f"🤖: {response}", Colors.END, sep="")
+    
+
+    #actual_main.remote(run_name)
+    

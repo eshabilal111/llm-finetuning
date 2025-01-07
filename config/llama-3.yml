@@ -2,11 +2,13 @@
 # Model Configuration: LLaMA-3 8B
 ###
 
-base_model: NousResearch/Meta-Llama-3-8B
-sequence_len: 4096
+base_model: unsloth/Llama-3-8B
+sequence_len: 2048 #4096
 
 # base model weight quantization
-load_in_8bit: true
+#load_in_8bit: true
+load_in_4bit: true
+load_in_8bit: false
 
 # attention implementation
 flash_attention: true
@@ -15,8 +17,8 @@ flash_attention: true
 adapter: lora
 lora_model_dir:
 lora_r: 16
-lora_alpha: 32
-lora_dropout: 0.05
+lora_alpha: 16 #32
+lora_dropout: 0 #0.5
 lora_target_linear: true
 lora_fan_in_fan_out:
 lora_modules_to_save: # required when adding new tokens to LLaMA/Mistral
@@ -30,26 +32,24 @@ lora_modules_to_save: # required when adding new tokens to LLaMA/Mistral
 
 datasets:
   # This will be the path used for the data when it is saved to the Volume in the cloud.
-  - path: data.jsonl
-    ds_type: json
+  - path: "data/recipe_training_dataset.jsonl"
+    ds_type: "json"
     type:
       # JSONL file contains question, context, answer fields per line.
       # This gets mapped to instruction, input, output axolotl tags.
-      field_instruction: question
-      field_input: context
-      field_output: answer
+      field_instruction: system
+      field_input: user
+      field_output: assistant
       # Format is used by axolotl to generate the prompt.
       format: |-
-        [INST] Using the schema context below, generate a SQL query that answers the question.
-        {input}
-        {instruction} [/INST]
+       [INST] 
+       {input}
+       {instruction} [/INST]
 
 # dataset formatting config
 tokens: # add new control tokens from the dataset to the model
   - "[INST]"
   - " [/INST]"
-  - "[SQL]"
-  - " [/SQL]"
 
 special_tokens:
   pad_token: <|end_of_text|>
@@ -65,12 +65,12 @@ seed: 117
 
 # optimizer config
 optimizer: adamw_bnb_8bit
-learning_rate: 0.0001
+learning_rate: 0.0002 #0.0001
 lr_scheduler: cosine
-num_epochs: 4
-micro_batch_size: 32
-gradient_accumulation_steps: 1
-warmup_steps: 10
+num_epochs: 1
+micro_batch_size: 2
+gradient_accumulation_steps: 4 #1
+warmup_steps: 5 #10
 
 # axolotl saving config
 dataset_prepared_path: last_run_prepared
@@ -94,3 +94,5 @@ strict: false
 
 # "Don't mess with this, it's here for accelerate and torchrun" -- axolotl docs
 local_rank:
+
+hub_model_id: esha111/recipe-generator # private repo path to push finetuned model

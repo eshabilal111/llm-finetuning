@@ -11,6 +11,8 @@ from .common import (
     VOLUME_CONFIG,
 )
 
+axolotl_image = axolotl_image.pip_install("datasets", "huggingface-hub == 0.27.1")
+
 GPU_CONFIG = os.environ.get("GPU_CONFIG", "a100:2")
 if len(GPU_CONFIG.split(":")) <= 1:
     N_GPUS = int(os.environ.get("N_GPUS", 2))
@@ -78,9 +80,12 @@ def merge(run_folder: str, output_dir: str):
 
 
 @app.function(image=axolotl_image, timeout=30 * MINUTES, volumes=VOLUME_CONFIG)
-def launch(config_raw: dict, data_raw: str, run_to_resume: str, preproc_only: bool):
+def launch(config_raw: dict, run_to_resume: str, preproc_only: bool): #data_raw: str
     import yaml
     from huggingface_hub import snapshot_download
+    from datasets import load_dataset
+    import pandas as pd
+    import json
 
     # Ensure the base model is downloaded
     # TODO(gongy): test if this works with a path to previous fine-tune
@@ -97,6 +102,17 @@ def launch(config_raw: dict, data_raw: str, run_to_resume: str, preproc_only: bo
         print("Committing /pretrained directory (no progress bar) ...")
         VOLUME_CONFIG["/pretrained"].commit()
 
+    dataset_name = "esha111/recipe_training_dataset"
+
+    # Download dataset from Hugging Face
+    #print(f"Loading dataset from Hugging Face: {dataset_name}")
+    dataset = load_dataset(dataset_name)
+
+    #df = pd.read_parquet("hf://datasets/esha111/recipe_training_dataset/data/train-00000-of-00001.parquet")
+
+    # Convert the DataFrame to a Dataset object
+    #dataset = Dataset.from_pandas(df)
+
     # Write config and data into a training subfolder.
     time_string = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     run_name = (
@@ -107,13 +123,63 @@ def launch(config_raw: dict, data_raw: str, run_to_resume: str, preproc_only: bo
     run_folder = f"/runs/{run_name}"
     os.makedirs(run_folder, exist_ok=True)
 
+    # Convert dataset to JSONL format
+    dataset_path = f"/runs/{run_name}/data/recipe_training_dataset.jsonl"
+    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+    dataset["train"].to_json(dataset_path, orient="records", lines=True)
+
+    cleaned_records = []
+
+    with open(dataset_path, "r") as infile:
+        for line_number, line in enumerate(infile, start=1):
+                # Parse the top-level JSON object
+                record = json.loads(line)
+                
+                # Parse the nested "conversations" field
+                conversations = json.loads(record.get("conversations", "[]"))
+                
+                # Extract fields for processing
+                system_content = next(
+                    (entry.get("content") for entry in conversations if entry.get("role") == "system"), ""
+                )
+                user_content = next(
+                    (entry.get("content") for entry in conversations if entry.get("role") == "user"), ""
+                )
+                assistant_content = next(
+                    (entry.get("content") for entry in conversations if entry.get("role") == "assistant"), ""
+                )
+                
+                # Skip malformed entries
+                if not (system_content and user_content and assistant_content):
+                    print(f"Skipping malformed record at line {line_number}")
+                    continue
+
+                # Add the cleaned record
+                cleaned_records.append({
+                    "system": system_content,
+                    "user": user_content,
+                    "assistant": assistant_content,
+                })
+
+    # Write the cleaned records to a new JSONL file
+    with open(dataset_path, "w") as outfile:
+        for record in cleaned_records:
+            outfile.write(json.dumps(record) + "\n")
+    
+    print(f"Dataset cleaned and saved to {dataset_path}")
+
+    # Save dataset to JSONL
+    #dataset["train"].to_json(dataset_path, orient="records", lines=True)
+    #data_raw = str(dataset["train"])
+    #print(f"Dataset saved to {dataset_path}")
+
     print(f"Preparing training run in {run_folder}.")
     with (
         open(f"{run_folder}/config.yml", "w") as config_file,
-        open(f"{run_folder}/{config['datasets'][0]['path']}", "w") as data_file,
+        #open(f"{run_folder}/{config['datasets'][0]['path']}", "w") as data_file,
     ):
         config_file.write(config_raw)
-        data_file.write(data_raw)
+        #data_file.write(data_raw)
     VOLUME_CONFIG["/runs"].commit()
 
     if preproc_only:
@@ -143,15 +209,15 @@ def launch(config_raw: dict, data_raw: str, run_to_resume: str, preproc_only: bo
 @app.local_entrypoint()
 def main(
     config: str,
-    data: str,
+    #data: str,
     merge_lora: bool = True,
     preproc_only: bool = False,
     run_to_resume: str = None,
 ):
     # Read config and data source files and pass their contents to the remote function.
-    with open(config, "r") as cfg, open(data, "r") as dat:
+    with open(config, "r") as cfg: #open(data, "r") as dat:
         run_name, launch_handle = launch.remote(
-            cfg.read(), dat.read(), run_to_resume, preproc_only
+            cfg.read(), run_to_resume, preproc_only #,dat.read()
         )
 
     # Write a local reference to the location on the remote volume with the run

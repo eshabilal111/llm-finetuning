@@ -4,26 +4,27 @@ load_in_8bit: false
 strict: false
 
 datasets:
+  #path: esha111/recipe_training_dataset
+  #type: alpaca
+  
   # This will be the path used for the data when it is saved to the Volume in the cloud.
-  - path: data.jsonl
-    ds_type: json
+  - path: "data/recipe_training_dataset.jsonl"
+    ds_type: "json"
     type:
       # JSONL file contains question, context, answer fields per line.
       # This gets mapped to instruction, input, output axolotl tags.
-      field_instruction: question
-      field_input: context
-      field_output: answer
+      field_instruction: system
+      field_input: user
+      field_output: assistant
       # Format is used by axolotl to generate the prompt.
       format: |-
-        [INST] Using the schema context below, generate a SQL query that answers the question.
-        {input}
-        {instruction} [/INST]
+       [INST] 
+       {input}
+       {instruction} [/INST]
 
 tokens:
   - "[INST]"
   - " [/INST]"
-  - "[SQL]"
-  - " [/SQL]"
 
 dataset_prepared_path: last_run_prepared
 val_set_size: 0.05
@@ -67,3 +68,5 @@ warmup_steps: 10
 eval_steps: 0.05
 deepspeed: /workspace/axolotl/deepspeed_configs/zero3_bf16.json
 weight_decay: 0.0
+
+hub_model_id: esha111/recipe-generator # private repo path to push finetuned model
